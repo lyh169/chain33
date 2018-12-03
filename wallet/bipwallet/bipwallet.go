@@ -12,7 +12,7 @@ import (
 	bip39 "github.com/33cn/chain33/wallet/bipwallet/go-bip39"
 	bip44 "github.com/33cn/chain33/wallet/bipwallet/go-bip44"
 	"github.com/33cn/chain33/wallet/bipwallet/transformer"
-	_ "github.com/33cn/chain33/wallet/bipwallet/transformer/btcbase"
+	_ "github.com/33cn/chain33/wallet/bipwallet/transformer/btcbase" //register btcbase package
 )
 
 // https://github.com/satoshilabs/slips/blob/master/slip-0044.md
@@ -120,7 +120,7 @@ var CoinName = map[uint32]string{
 	TypeEtherClassic: "ETC",
 	TypeBitcoin:      "BTC",
 	TypeLitecoin:     "LTC",
-	TypeZayedcoin:    "ZEC",
+	TypeZcash:        "ZEC",
 	TypeBty:          "BTY",
 	TypeYcc:          "YCC",
 }

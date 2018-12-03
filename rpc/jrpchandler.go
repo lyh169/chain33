@@ -12,7 +12,6 @@ import (
 
 	"github.com/33cn/chain33/common"
 	"github.com/33cn/chain33/common/address"
-	"github.com/33cn/chain33/common/version"
 	"github.com/33cn/chain33/rpc/jsonclient"
 	"github.com/33cn/chain33/types"
 	wcom "github.com/33cn/chain33/wallet/common"
@@ -895,14 +894,13 @@ func (c *Chain33) DumpPrivkey(in types.ReqString, result *interface{}) error {
 	return nil
 }
 
-// Version version
+// Version get software version
 func (c *Chain33) Version(in *types.ReqNil, result *interface{}) error {
-	*result = &rpctypes.NodeVersion{
-		Title:   types.GetTitle(),
-		App:     version.GetAppVersion(),
-		Chain33: version.GetVersion(),
-		LocalDb: version.GetLocalDBVersion(),
+	resp, err := c.cli.Version()
+	if err != nil {
+		return err
 	}
+	*result = resp
 	return nil
 }
 
@@ -1177,5 +1175,40 @@ func (c *Chain33) GetExecBalance(in *types.ReqGetExecBalance, result *interface{
 	}
 	//*result = resp
 	*result = hex.EncodeToString(types.Encode(resp))
+	return nil
+}
+
+// AddSeqCallBack  add Seq CallBack
+func (c *Chain33) AddSeqCallBack(in *types.BlockSeqCB, result *interface{}) error {
+	reply, err := c.cli.AddSeqCallBack(in)
+	log.Error("AddSeqCallBack", "err", err, "reply", reply)
+
+	if err != nil {
+		return err
+	}
+	var resp rpctypes.Reply
+	resp.IsOk = reply.GetIsOk()
+	resp.Msg = string(reply.GetMsg())
+	*result = &resp
+	return nil
+}
+
+// ListSeqCallBack  List Seq CallBack
+func (c *Chain33) ListSeqCallBack(in *types.ReqNil, result *interface{}) error {
+	resp, err := c.cli.ListSeqCallBack()
+	if err != nil {
+		return err
+	}
+	*result = resp
+	return nil
+}
+
+// GetSeqCallBackLastNum  Get Seq Call Back Last Num
+func (c *Chain33) GetSeqCallBackLastNum(in *types.ReqString, result *interface{}) error {
+	resp, err := c.cli.GetSeqCallBackLastNum(in)
+	if err != nil {
+		return err
+	}
+	*result = resp
 	return nil
 }
