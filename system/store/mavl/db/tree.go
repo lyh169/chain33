@@ -17,6 +17,7 @@ import (
 	"github.com/33cn/chain33/types"
 	"github.com/golang/protobuf/proto"
 	"github.com/hashicorp/golang-lru"
+	. "github.com/dgryski/go-farm"
 )
 
 const (
@@ -37,6 +38,10 @@ var (
 	// 当前树的最大高度
 	maxBlockHeight int64
 	heightMtx      sync.Mutex
+	//
+	enableMemTree  bool
+	memTree        MemTreeOpera
+	enableMemVal   bool
 )
 
 // EnableMavlPrefix 使能mavl加前缀
@@ -49,23 +54,51 @@ func EnableMVCC(enable bool) {
 	enableMvcc = enable
 }
 
+func EnableMemTree(enable bool) {
+	enableMemTree = enable
+}
+
+func EnableMemVal(enable bool) {
+	enableMemVal = enable
+}
+
+type memNode struct {
+	data                 [][]byte //顺序为lefthash, righthash, key, value
+	Height               int32
+	Size                 int32
+}
+
+type uintkey uint64
+
 // Tree merkle avl tree
 type Tree struct {
 	root        *Node
 	ndb         *nodeDB
 	blockHeight int64
+	// 树更新之后，废弃的节点(更新缓存中节点先对旧节点进行删除然后再更新)
+	obsoleteNode map[uintkey]struct{}
+	updateNode   map[uintkey]*memNode
 }
 
 // NewTree 新建一个merkle avl 树
 func NewTree(db dbm.DB, sync bool) *Tree {
 	if db == nil {
 		// In-memory IAVLTree
-		return &Tree{}
+		return &Tree{
+			    obsoleteNode: make(map[uintkey]struct{}),
+			    updateNode: make(map[uintkey]*memNode),
+			}
 	}
 	// Persistent IAVLTree
 	ndb := newNodeDB(db, sync)
+	// 使能情况下非空创建当前整tree的缓存
+	if enableMemTree && memTree == nil  {
+		memTree = NewTreeMap(50 * 10000)
+	}
 	return &Tree{
 		ndb: ndb,
+		obsoleteNode: make(map[uintkey]struct{}),
+		updateNode: make(map[uintkey]*memNode),
 	}
 }
 
@@ -116,11 +149,15 @@ func (t *Tree) Has(key []byte) bool {
 func (t *Tree) Set(key []byte, value []byte) (updated bool) {
 	//treelog.Info("IAVLTree.Set", "key", key, "value",value)
 	if t.root == nil {
-		t.root = NewNode(key, value)
+		t.root = NewNode(copyBytes(key), copyBytes(value))
 		return false
 	}
-	t.root, updated = t.root.set(t, key, value)
+	t.root, updated = t.root.set(t, copyBytes(key) , copyBytes(value))
 	return updated
+}
+
+func (t *Tree) GetObsoleteNode() map[uintkey]struct{} {
+	return t.obsoleteNode
 }
 
 // Hash 计算tree 的roothash
@@ -153,6 +190,16 @@ func (t *Tree) Save() []byte {
 			if err != nil {
 				treelog.Error("Tree.Save", "saveRootHash err", err)
 			}
+		}
+		// 更新memTree
+		if enableMemTree && memTree != nil {
+			for k, _ := range t.obsoleteNode {
+				memTree.Delete(k)
+			}
+			for k, v := range t.updateNode {
+				memTree.Add(k, v)
+			}
+			treelog.Debug("Tree.Save", "memTree len", memTree.Len(), "tree height", t.blockHeight)
 		}
 		beg := types.Now()
 		err := t.ndb.Commit()
@@ -406,6 +453,13 @@ func (ndb *nodeDB) GetNode(t *Tree, hash []byte) (*Node, error) {
 			return elem.(*Node), nil
 		}
 	}
+	//从memtree中获取
+	if enableMemTree {
+		node, err := getNode4MemTree(hash)
+		if err == nil {
+			return node, nil
+		}
+	}
 	// Doesn't exist, load from db.
 	var buf []byte
 	buf, err := ndb.db.Get(hash)
@@ -420,6 +474,11 @@ func (ndb *nodeDB) GetNode(t *Tree, hash []byte) (*Node, error) {
 	node.hash = hash
 	node.persisted = true
 	ndb.cacheNode(node)
+	treelog.Debug("Tree.GetNode test", "height", node.height)
+	// Save node hashInt64 to memTree
+	if enableMemTree {
+		updateGlobalMemTree(node)
+	}
 	return node, nil
 }
 
@@ -470,6 +529,85 @@ func (ndb *nodeDB) SaveNode(t *Tree, node *Node) {
 	ndb.cacheNode(node)
 	delete(ndb.orphans, string(node.hash))
 	//treelog.Debug("SaveNode", "hash", node.hash, "height", node.height, "value", node.value)
+	// Save node hashInt64 to localmem
+	if enableMemTree {
+		updateLocalMemTree(t, node)
+	}
+}
+
+func getNode4MemTree(hash []byte) (*Node, error) {
+	if memTree == nil {
+		return nil, ErrNodeNotExist
+	}
+	elem, ok := memTree.Get(uintkey(Hash64(hash)))
+	if ok {
+		sn := elem.(*memNode)
+		node := &Node{
+			height: sn.Height,
+			size: sn.Size,
+			hash: hash,
+			persisted: true,
+		}
+		node.leftHash  = sn.data[0]
+		node.rightHash = sn.data[1]
+		node.key       = sn.data[2]
+		if len(sn.data) == 4 {
+			node.value = sn.data[3]
+		}
+		return node, nil
+	}
+	return nil, ErrNodeNotExist
+}
+
+// Save node hashInt64 to memTree
+func updateGlobalMemTree(node *Node) {
+	if node == nil || memTree == nil {
+		return
+	}
+	if !enableMemVal && node.height == 0 {
+		return
+	}
+	memN := &memNode{
+		Height: node.height,
+		Size: node.size,
+	}
+	if node.height == 0 {
+		memN.data = make([][]byte, 4)
+		memN.data[3] = node.value
+	} else {
+		memN.data = make([][]byte, 3)
+	}
+	memN.data[0] = node.leftHash
+	memN.data[1] = node.rightHash
+	memN.data[2] = node.key
+	memTree.Add(uintkey(Hash64(node.hash)), memN)
+}
+
+// Save node hashInt64 to localmem
+func updateLocalMemTree(t *Tree, node *Node) {
+	if t == nil || node == nil {
+		return
+	}
+	if !enableMemVal && node.height == 0 {
+		return
+	}
+	if t.updateNode != nil {
+		memN := &memNode{
+			Height: node.height,
+			Size: node.size,
+		}
+		if node.height == 0 {
+			memN.data = make([][]byte, 4)
+			memN.data[3] = node.value
+		} else {
+			memN.data = make([][]byte, 3)
+		}
+		memN.data[0] = node.leftHash
+		memN.data[1] = node.rightHash
+		memN.data[2] = node.key
+		t.updateNode[uintkey(Hash64(node.hash))] = memN
+		//treelog.Debug("Tree.SaveNode", "store struct size", unsafe.Sizeof(store), "byte size", len(storenode), "height", node.height)
+	}
 }
 
 //cache缓存节点
