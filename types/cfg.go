@@ -143,6 +143,10 @@ type BlockChain struct {
 	EnableTxQuickIndex bool `protobuf:"varint,13,opt,name=enableTxQuickIndex" json:"enableTxQuickIndex,omitempty"`
 	// 升级storedb是否重新执行localdb
 	EnableReExecLocal bool `protobuf:"varint,13,opt,name=enableReExecLocal" json:"enableReExecLocal,omitempty"`
+	// 是否使能消除分叉
+	EnableEraseFork  bool `protobuf:"varint,13,opt,name=enableEraseFork" json:"enableEraseFork,omitempty"`
+	// 消除分叉开始执行高度
+	EraseForkHeight  int64  `protobuf:"varint,13,opt,name=eraseForkHeight" json:"eraseForkHeight,omitempty"`
 }
 
 // P2P 配置

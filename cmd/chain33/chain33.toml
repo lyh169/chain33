@@ -50,6 +50,12 @@ isParaChain=false
 enableTxQuickIndex=false
 # 升级storedb是否重新执行localdb
 enableReExecLocal=false
+# 是否使能消除分叉
+enableEraseFork=false
+# 消除分叉开始执行高度
+eraseForkHeight=-1
+# 消除分叉版本
+eraseForkVersion="1.0.0"
 
 [p2p]
 # P2P服务监听端口号

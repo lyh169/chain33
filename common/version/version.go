@@ -13,9 +13,11 @@ var (
 	BlockChainVerKey = []byte("BlockChainVerKey")
 	LocalDBMeta      = []byte("LocalDBMeta")
 	StoreDBMeta      = []byte("StoreDBMeta")
+	EraseForkMeta    = []byte("EraseFrokMeta")
 	MavlTreeVerKey   = []byte("MavlTreeVerKey")
 	localversion     = "1.0.0"
 	storeversion     = "1.0.0"
+	eraseForkVersion = "0.0.0"
 	appversion       = "1.0.0"
 	GitCommit        string
 )
@@ -64,6 +66,18 @@ func GetStoreDBVersion() string {
 func SetStoreDBVersion(version string) {
 	if version != "" {
 		storeversion = version
+	}
+}
+
+// GetEraseForkVersion 获取EraseForkVersion版本
+func GetEraseForkVersion() string {
+	return eraseForkVersion
+}
+
+// SetEraseForkVersion 通过设置版本号，强制执行fork擦除
+func SetEraseForkVersion(version string) {
+	if version != "" {
+		eraseForkVersion = version
 	}
 }
 
